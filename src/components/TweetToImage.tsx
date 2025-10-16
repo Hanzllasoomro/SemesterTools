@@ -9,8 +9,8 @@ export default function TweetToImage() {
   const [tweetText, setTweetText] = useState(
     "Hello world! #tweetToImage @you 😊"
   );
-  const [name, setName] = useState("Jane Doe");
-  const [username, setUsername] = useState("janedoe");
+  const [name, setName] = useState("Hanzlla Soomro");
+  const [username, setUsername] = useState("hanzllasoomro");
   const [isVerified, setIsVerified] = useState(true);
   const [profileSrc, setProfileSrc] = useState(null);
   const [theme, setTheme] = useState("dark");
