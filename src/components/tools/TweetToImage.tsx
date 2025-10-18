@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useRef, useState, useEffect } from "react";
 import * as htmlToImage from "html-to-image";
 import { saveAs } from "file-saver";
@@ -8,24 +10,41 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 
 export default function TweetToImagePremium() {
-  const cardRef = useRef(null);
-  const textRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [tweetText, setTweetText] = useState("Hello world! #tweetToImage @you 😊");
   const [name, setName] = useState("Hanzlla Soomro");
   const [username, setUsername] = useState("hanzllasoomro");
   const [isVerified, setIsVerified] = useState(true);
-  const [profileSrc, setProfileSrc] = useState(null);
+  const [profileSrc, setProfileSrc] = useState<string | null>(null);
   const [theme, setTheme] = useState("dark");
   const [bgColor, setBgColor] = useState("");
   const [format, setFormat] = useState("png");
   const [scale, setScale] = useState(2);
   const [fileName, setFileName] = useState("tweet-card");
+  const [isExporting, setIsExporting] = useState(false);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number; } | null>(null);
+
+  // Update dimensions whenever scale changes or on window resize
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (!cardRef.current) return;
+      const rect = cardRef.current.getBoundingClientRect();
+      const width = Math.ceil(rect.width) * scale;
+      const height = Math.ceil(rect.height) * scale;
+      setDimensions({ width, height });
+    };
+
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, [scale]);
 
   // Handle emoji and hashtag formatting
-  function formatTweetToHTML(text) {
-    const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function formatTweetToHTML(text: string) {
+    const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     let escaped = escapeHtml(text);
     escaped = escaped.replace(/(#[\p{L}0-9_]+)/gu, '<span class="hashtag">$1</span>');
     escaped = escaped.replace(/(@[\p{L}0-9_]+)/gu, '<span class="mention">$1</span>');
@@ -36,16 +55,39 @@ export default function TweetToImagePremium() {
 
   useEffect(() => {
     if (!textRef.current) return;
-    const formatted = formatTweetToHTML(tweetText);
-    const withEmojis = emoji.emojify(formatted, undefined, (code) => code);
-    textRef.current.innerHTML = withEmojis;
+    try {
+      const formatted = formatTweetToHTML(tweetText);
+  // node-emoji's emojify takes a string and an optional lookup map; using default behavior
+  const withEmojis = emoji.emojify(formatted as string);
+      // Assign innerHTML in a controlled way; fallback to textContent on error
+      textRef.current.innerHTML = withEmojis;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to render tweet text", e);
+      textRef.current.textContent = tweetText;
+    }
   }, [tweetText]);
 
-  function onProfileUpload(e) {
+  function onProfileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setProfileSrc(url);
+    
+    // Convert to data URL instead of blob URL to avoid CORS issues
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      setProfileSrc((prev) => {
+        // Clean up previous blob URL if it exists
+        if (prev && typeof prev === "string" && prev.startsWith("blob:")) {
+          try { URL.revokeObjectURL(prev); } catch (_) { }
+        }
+        return dataUrl;
+      });
+    };
+    reader.onerror = () => {
+      alert("Failed to read image file. Please try again.");
+    };
+    reader.readAsDataURL(file);
   }
 
   function getBackgroundStyle() {
@@ -61,29 +103,181 @@ export default function TweetToImagePremium() {
 
   async function exportCard() {
     if (!cardRef.current) return;
+    setIsExporting(true);
     const node = cardRef.current;
-    const options = { cacheBust: true, pixelRatio: scale, style: { transform: "none" }, useCORS: true };
+    
     try {
-      await new Promise((res) => setTimeout(res, 500));
+      // Get the exact dimensions including padding, borders, and any overflow
+      const rect = node.getBoundingClientRect();
+      const computedStyle = window.getComputedStyle(node);
+      
+      // Parse all possible dimensions that could affect size
+      const paddingTop = parseInt(computedStyle.paddingTop, 10) || 0;
+      const paddingBottom = parseInt(computedStyle.paddingBottom, 10) || 0;
+      const paddingLeft = parseInt(computedStyle.paddingLeft, 10) || 0;
+      const paddingRight = parseInt(computedStyle.paddingRight, 10) || 0;
+      const borderTop = parseInt(computedStyle.borderTopWidth, 10) || 0;
+      const borderBottom = parseInt(computedStyle.borderBottomWidth, 10) || 0;
+      const borderLeft = parseInt(computedStyle.borderLeftWidth, 10) || 0;
+      const borderRight = parseInt(computedStyle.borderRightWidth, 10) || 0;
+      
+      // Calculate content box dimensions
+      const contentWidth = rect.width - paddingLeft - paddingRight - borderLeft - borderRight;
+      const contentHeight = rect.height - paddingTop - paddingBottom - borderTop - borderBottom;
+      
+      // Add a small safety margin and round up to nearest pixel
+      const safetyMargin = 2; // 2px safety margin
+      const width = Math.ceil(rect.width + safetyMargin * 2);
+      const height = Math.ceil(rect.height + safetyMargin * 2);
+      
+      // Calculate high-DPI dimensions based on scale
+      const canvasWidth = width * scale;
+      const canvasHeight = height * scale;
+      
+      // Log dimensions for debugging
+      console.debug('Export dimensions:', {
+        rect: { width: rect.width, height: rect.height },
+        computed: { 
+          content: { width: contentWidth, height: contentHeight },
+          padding: { top: paddingTop, right: paddingRight, bottom: paddingBottom, left: paddingLeft },
+          border: { top: borderTop, right: borderRight, bottom: borderBottom, left: borderLeft }
+        },
+        final: { 
+          width, height,
+          canvasWidth, canvasHeight,
+          scale,
+          pixelRatio: window.devicePixelRatio
+        }
+      });
+      
+      const options: Record<string, any> = { 
+        cacheBust: true,
+        pixelRatio: scale,
+        style: { 
+          transform: "none",
+          margin: `${safetyMargin}px`,
+        },
+        skipAutoScale: true,
+        quality: 0.92,
+        width,
+        height,
+        canvasWidth,
+        canvasHeight,
+      };
+
+      // Ensure layout is stable and scrolled into view
+      node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      // Wait a bit longer for layout to stabilize
+      await new Promise((res) => setTimeout(res, 250));
+
       const method = format === "png" ? htmlToImage.toPng : htmlToImage.toJpeg;
-      const dataUrl = await method(node, { ...options, quality: 0.92 });
+      const dataUrl = await method(node, options);
       const blob = dataURLToBlob(dataUrl);
       saveAs(blob, `${fileName}.${format}`);
     } catch (err) {
-      console.error("Export failed", err);
-      alert("Export failed — see console for details.");
+      console.error("Export failed:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert(`Export failed: ${errMsg}. Please try again.`);
+    } finally {
+      setIsExporting(false);
     }
   }
 
-  function dataURLToBlob(dataUrl) {
+  function getCircularReplacer() {
+    const seen = new WeakSet();
+    return (key: string, value: any) => {
+      if (typeof value === "object" && value !== null) {
+        if (seen.has(value)) return "[Circular]";
+        seen.add(value);
+      }
+      return value;
+    };
+  }
+
+  // Wait for images inside `root` to be complete or until timeoutms elapses
+  function waitForImagesToLoad(root: HTMLElement, timeoutMs = 5000) {
+    const imgs = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
+    if (imgs.length === 0) return Promise.resolve();
+
+    // Log image info
+    console.debug('Images to wait for:', imgs.map(img => ({
+      src: img.src.substring(0, 100) + (img.src.length > 100 ? '...' : ''),
+      complete: img.complete,
+      naturalSize: img.complete ? { width: img.naturalWidth, height: img.naturalHeight } : null,
+      displaySize: { width: img.offsetWidth, height: img.offsetHeight }
+    })));
+
+    const watchers = imgs.map((img) => {
+      return new Promise<void>((res) => {
+        if (img.complete) {
+          console.debug('Image already loaded:', {
+            src: img.src.substring(0, 100) + (img.src.length > 100 ? '...' : ''),
+            naturalSize: { width: img.naturalWidth, height: img.naturalHeight }
+          });
+          return res();
+        }
+
+        const onDone = () => { 
+          console.debug('Image loaded:', {
+            src: img.src.substring(0, 100) + (img.src.length > 100 ? '...' : ''),
+            naturalSize: { width: img.naturalWidth, height: img.naturalHeight }
+          });
+          cleanup(); 
+          res(); 
+        };
+        const onErr = () => { 
+          console.warn('Image load failed:', img.src);
+          cleanup(); 
+          res(); 
+        };
+        const cleanup = () => { 
+          img.removeEventListener('load', onDone); 
+          img.removeEventListener('error', onErr); 
+        };
+        
+        img.addEventListener('load', onDone);
+        img.addEventListener('error', onErr);
+      });
+    });
+
+    return Promise.race([
+      Promise.all(watchers),
+      new Promise<void>((res) => {
+        setTimeout(() => {
+          console.warn('Image loading timed out after', timeoutMs, 'ms');
+          res();
+        }, timeoutMs);
+      }),
+    ]).then(() => {
+      // Final size check
+      imgs.forEach(img => {
+        if (img.complete && (img.naturalWidth === 0 || img.naturalHeight === 0)) {
+          console.warn('Image loaded but has zero dimensions:', img.src);
+        }
+      });
+    });
+  }
+
+  function dataURLToBlob(dataUrl: string) {
     const arr = dataUrl.split(",");
-    const mime = arr[0].match(/:(.*?);/)[1];
-    const bstr = atob(arr[1]);
+    const metaMatch = arr[0].match(/:(.*?);/);
+    const mime = metaMatch?.[1] ?? "image/png";
+    const b64 = arr[1] ?? "";
+    const bstr = atob(b64);
     let n = bstr.length;
     const u8arr = new Uint8Array(n);
     while (n--) u8arr[n] = bstr.charCodeAt(n);
     return new Blob([u8arr], { type: mime });
   }
+
+  // Cleanup object URL on unmount
+  useEffect(() => {
+    return () => {
+      if (profileSrc && typeof profileSrc === "string" && profileSrc.startsWith("blob:")) {
+        try { URL.revokeObjectURL(profileSrc); } catch (_) { }
+      }
+    };
+  }, [profileSrc]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 font-sans">
@@ -186,9 +380,20 @@ export default function TweetToImagePremium() {
                 className={`${theme === "light" ? "bg-white text-black placeholder-gray-500" : "bg-gray-800/70 text-white placeholder-gray-400"}`}
               />
 
-              <Button onClick={exportCard} className="w-full mt-4 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 transition text-white">
-                Export {format.toUpperCase()}
-              </Button>
+              <div className="relative group">
+                <Button 
+                  onClick={exportCard} 
+                  disabled={isExporting}
+                  className="w-full mt-4 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 transition text-white"
+                >
+                  {isExporting ? 'Exporting...' : `Export ${format.toUpperCase()}`}
+                </Button>
+                {dimensions && (
+                  <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                    Output size: {dimensions.width}×{dimensions.height}px
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
