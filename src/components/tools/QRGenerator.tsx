@@ -56,7 +56,13 @@ export default function PremiumQRGenerator() {
     }
   }
 
-  function handleLogo(f: File | null) { if (!f) return setLogo(URL.createObjectURL(f)) }
+  function handleLogo(f: File | null) {
+    if (!f) {
+      setLogo(null);
+      return;
+    }
+    setLogo(URL.createObjectURL(f));
+  }
 
   async function download(format: 'png' | 'svg') {
     const canvas = canvasRef.current
