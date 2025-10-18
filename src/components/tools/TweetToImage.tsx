@@ -4,6 +4,7 @@ import React, { useRef, useState, useEffect } from "react";
 import * as htmlToImage from "html-to-image";
 import { saveAs } from "file-saver";
 import * as emoji from "node-emoji";
+import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -20,7 +21,7 @@ export default function TweetToImagePremium() {
   const [isVerified, setIsVerified] = useState(true);
   const [profileSrc, setProfileSrc] = useState<string | null>(null);
   const [theme, setTheme] = useState("dark");
-  const [bgColor, setBgColor] = useState("");
+  const [bgColor] = useState("");
   const [format, setFormat] = useState("png");
   const [scale, setScale] = useState(2);
   const [fileName, setFileName] = useState("tweet-card");
@@ -62,7 +63,6 @@ export default function TweetToImagePremium() {
       // Assign innerHTML in a controlled way; fallback to textContent on error
       textRef.current.innerHTML = withEmojis;
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error("Failed to render tweet text", e);
       textRef.current.textContent = tweetText;
     }
@@ -79,7 +79,7 @@ export default function TweetToImagePremium() {
       setProfileSrc((prev) => {
         // Clean up previous blob URL if it exists
         if (prev && typeof prev === "string" && prev.startsWith("blob:")) {
-          try { URL.revokeObjectURL(prev); } catch (_) { }
+          try { URL.revokeObjectURL(prev); } catch (error) { /* ignore cleanup errors */ }
         }
         return dataUrl;
       });
@@ -150,7 +150,17 @@ export default function TweetToImagePremium() {
         }
       });
       
-      const options: Record<string, any> = { 
+      const options: {
+        cacheBust: boolean;
+        pixelRatio: number;
+        style: { transform: string; margin: string };
+        skipAutoScale: boolean;
+        quality: number;
+        width: number;
+        height: number;
+        canvasWidth: number;
+        canvasHeight: number;
+      } = { 
         cacheBust: true,
         pixelRatio: scale,
         style: { 
@@ -183,80 +193,7 @@ export default function TweetToImagePremium() {
     }
   }
 
-  function getCircularReplacer() {
-    const seen = new WeakSet();
-    return (key: string, value: any) => {
-      if (typeof value === "object" && value !== null) {
-        if (seen.has(value)) return "[Circular]";
-        seen.add(value);
-      }
-      return value;
-    };
-  }
 
-  // Wait for images inside `root` to be complete or until timeoutms elapses
-  function waitForImagesToLoad(root: HTMLElement, timeoutMs = 5000) {
-    const imgs = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
-    if (imgs.length === 0) return Promise.resolve();
-
-    // Log image info
-    console.debug('Images to wait for:', imgs.map(img => ({
-      src: img.src.substring(0, 100) + (img.src.length > 100 ? '...' : ''),
-      complete: img.complete,
-      naturalSize: img.complete ? { width: img.naturalWidth, height: img.naturalHeight } : null,
-      displaySize: { width: img.offsetWidth, height: img.offsetHeight }
-    })));
-
-    const watchers = imgs.map((img) => {
-      return new Promise<void>((res) => {
-        if (img.complete) {
-          console.debug('Image already loaded:', {
-            src: img.src.substring(0, 100) + (img.src.length > 100 ? '...' : ''),
-            naturalSize: { width: img.naturalWidth, height: img.naturalHeight }
-          });
-          return res();
-        }
-
-        const onDone = () => { 
-          console.debug('Image loaded:', {
-            src: img.src.substring(0, 100) + (img.src.length > 100 ? '...' : ''),
-            naturalSize: { width: img.naturalWidth, height: img.naturalHeight }
-          });
-          cleanup(); 
-          res(); 
-        };
-        const onErr = () => { 
-          console.warn('Image load failed:', img.src);
-          cleanup(); 
-          res(); 
-        };
-        const cleanup = () => { 
-          img.removeEventListener('load', onDone); 
-          img.removeEventListener('error', onErr); 
-        };
-        
-        img.addEventListener('load', onDone);
-        img.addEventListener('error', onErr);
-      });
-    });
-
-    return Promise.race([
-      Promise.all(watchers),
-      new Promise<void>((res) => {
-        setTimeout(() => {
-          console.warn('Image loading timed out after', timeoutMs, 'ms');
-          res();
-        }, timeoutMs);
-      }),
-    ]).then(() => {
-      // Final size check
-      imgs.forEach(img => {
-        if (img.complete && (img.naturalWidth === 0 || img.naturalHeight === 0)) {
-          console.warn('Image loaded but has zero dimensions:', img.src);
-        }
-      });
-    });
-  }
 
   function dataURLToBlob(dataUrl: string) {
     const arr = dataUrl.split(",");
@@ -274,7 +211,7 @@ export default function TweetToImagePremium() {
   useEffect(() => {
     return () => {
       if (profileSrc && typeof profileSrc === "string" && profileSrc.startsWith("blob:")) {
-        try { URL.revokeObjectURL(profileSrc); } catch (_) { }
+        try { URL.revokeObjectURL(profileSrc); } catch (error) { /* ignore cleanup errors */ }
       }
     };
   }, [profileSrc]);
@@ -404,7 +341,18 @@ export default function TweetToImagePremium() {
         <CardContent>
           <div className="flex gap-4 items-start">
             <div className="w-16 h-16 rounded-full overflow-hidden flex-shrink-0 bg-gray-700/50 flex items-center justify-center text-white text-2xl">
-              {profileSrc ? <img src={profileSrc} className="w-full h-full object-cover rounded-full" crossOrigin="anonymous" /> : (name || "?")[0]}
+              {profileSrc ? (
+                <div className="relative w-full h-full">
+                  <Image
+                    src={profileSrc}
+                    alt={`Profile picture of ${name}`}
+                    className="object-cover rounded-full"
+                    fill
+                    sizes="64px"
+                    crossOrigin="anonymous"
+                  />
+                </div>
+              ) : (name || "?")[0]}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
