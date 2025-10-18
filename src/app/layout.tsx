@@ -2,7 +2,7 @@ import "./globals.css";
 import React from "react";
 
 export const metadata = {
-  title: "MUET Tools — Utility Suite",
+  title: "Semester Tools — Utility Suite",
   description:
     "Tweet→Image, JPEG Compressor, QR Code, Email Extractor, Color Palette — a crafted set of focused, privacy-first utilities.",
 };
@@ -21,7 +21,7 @@ export default function RootLayout({
           <header className="w-full py-10">
             <div className="max-w-6xl mx-auto flex flex-col gap-3">
               <h1 className="text-4xl font-semibold tracking-tight text-white/90">
-                MUET<span className="text-indigo-400"> Tools</span>
+                Semester<span className="text-indigo-400"> Tools</span>
               </h1>
               <p className="text-sm text-gray-400 leading-relaxed max-w-xl">
                 A precision-built suite of web utilities — crafted with modern
